@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel 檔案比較工具</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Excel 檔案比較工具</h1>
+            <p>上傳兩個Excel檔案並比較其中的差異</p>
+        </header>
+
+        <main>
+            <section class="upload-section">
+                <div class="file-upload">
+                    <h2>舊版檔案</h2>
+                    <div class="upload-area" id="old-file-area">
+                        <input type="file" id="old-file" accept=".xlsx, .xls" />
+                        <label for="old-file">
+                            <div class="upload-icon">📄</div>
+                            <div>點擊或拖曳檔案至此</div>
+                            <div class="file-name" id="old-file-name"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="file-upload">
+                    <h2>新版檔案</h2>
+                    <div class="upload-area" id="new-file-area">
+                        <input type="file" id="new-file" accept=".xlsx, .xls" />
+                        <label for="new-file">
+                            <div class="upload-icon">📄</div>
+                            <div>點擊或拖曳檔案至此</div>
+                            <div class="file-name" id="new-file-name"></div>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <section class="options-section">
+                <div class="sheet-selection">
+                    <div>
+                        <label for="old-sheet-select">舊版工作表:</label>
+                        <select id="old-sheet-select" disabled>
+                            <option value="">請先上傳檔案</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="new-sheet-select">新版工作表:</label>
+                        <select id="new-sheet-select" disabled>
+                            <option value="">請先上傳檔案</option>
+                        </select>
+                    </div>
+                </div>
+                <button id="compare-btn" class="compare-btn" disabled>比較檔案</button>
+            </section>
+
+            <section class="results-section" id="results-section">
+                <h2>比較結果</h2>
+                <div class="summary" id="summary">
+                    <p>請上傳檔案並點擊比較按鈕</p>
+                </div>
+                <div class="results-table-container">
+                    <table id="results-table" class="results-table">
+                        <thead>
+                            <tr>
+                                <th>位置</th>
+                                <th>舊版內容</th>
+                                <th>新版內容</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body">
+                            <!-- 結果將在這裡動態生成 -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>© 2023 Excel 檔案比較工具</p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
