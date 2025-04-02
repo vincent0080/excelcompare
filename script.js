@@ -179,49 +179,28 @@ document.addEventListener('DOMContentLoaded', function() {
     function smartCompare(oldData, newData, keyColumnIndex) {
         const differences = [];
         const oldRowMap = new Map();
-        const newRowMap = new Map();
-        
-        // 跳過標題行（如果存在）
-        const startIndex = oldData.length > 0 && newData.length > 0 ? 1 : 0;
         
         // 建立舊數據的映射表，以主鍵為索引
-        for (let rowIndex = startIndex; rowIndex < oldData.length; rowIndex++) {
-            const row = oldData[rowIndex];
-            if (row.length === 0) continue;
-            
-            const keyValue = row[keyColumnIndex];
-            if (keyValue !== undefined && keyValue !== '') {
-                oldRowMap.set(String(keyValue), { row, rowIndex });
-            } else {
-                // 對於沒有主鍵的行，嘗試使用整行內容作為標識
-                const rowSignature = row.join('|');
-                oldRowMap.set(rowSignature, { row, rowIndex });
+        oldData.forEach((row, rowIndex) => {
+            if (row.length > 0) {
+                const keyValue = row[keyColumnIndex];
+                if (keyValue !== undefined && keyValue !== '') {
+                    oldRowMap.set(String(keyValue), { row, rowIndex });
+                } else {
+                    // 對於沒有主鍵的行，使用行的內容作為標識而不是行號
+                    // 這樣可以更準確地匹配行，避免誤報
+                    const rowContent = JSON.stringify(row);
+                    oldRowMap.set(rowContent, { row, rowIndex });
+                }
             }
-        }
-        
-        // 建立新數據的映射表，用於後續比較
-        for (let rowIndex = startIndex; rowIndex < newData.length; rowIndex++) {
-            const row = newData[rowIndex];
-            if (row.length === 0) continue;
-            
-            const keyValue = row[keyColumnIndex];
-            if (keyValue !== undefined && keyValue !== '') {
-                newRowMap.set(String(keyValue), { row, rowIndex });
-            } else {
-                // 對於沒有主鍵的行，嘗試使用整行內容作為標識
-                const rowSignature = row.join('|');
-                newRowMap.set(rowSignature, { row, rowIndex });
-            }
-        }
+        });
         
         // 追蹤已匹配的舊行
         const matchedOldRows = new Set();
-        const matchedNewRows = new Set();
         
-        // 先處理有主鍵的行匹配
-        for (let rowIndex = startIndex; rowIndex < newData.length; rowIndex++) {
-            const newRow = newData[rowIndex];
-            if (newRow.length === 0) continue;
+        // 比較新數據與舊數據
+        newData.forEach((newRow, newRowIndex) => {
+            if (newRow.length === 0) return;
             
             const newKeyValue = newRow[keyColumnIndex];
             let matchFound = false;
@@ -233,7 +212,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (oldRowInfo) {
                     matchFound = true;
                     matchedOldRows.add(String(newKeyValue));
-                    matchedNewRows.add(rowIndex);
                     
                     const { row: oldRow, rowIndex: oldRowIndex } = oldRowInfo;
                     
@@ -250,7 +228,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             differences.push({
                                 type: 'changed',
                                 oldRowIndex,
-                                newRowIndex: rowIndex,
+                                newRowIndex,
                                 colIndex,
                                 oldValue,
                                 newValue
@@ -259,37 +237,38 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
             }
-        }
-        
-        // 處理沒有主鍵的行，嘗試通過內容匹配
-        for (let rowIndex = startIndex; rowIndex < newData.length; rowIndex++) {
-            if (matchedNewRows.has(rowIndex)) continue; // 跳過已匹配的行
             
-            const newRow = newData[rowIndex];
-            if (newRow.length === 0) continue;
-            
-            // 使用行內容作為標識
-            const rowSignature = newRow.join('|');
-            const oldRowInfo = oldRowMap.get(rowSignature);
-            
-            if (oldRowInfo && !matchedOldRows.has(rowSignature)) {
-                matchedOldRows.add(rowSignature);
-                matchedNewRows.add(rowIndex);
-                // 內容完全相同，不需要記錄差異
-            } else if (!matchedNewRows.has(rowIndex)) {
-                // 如果沒有找到匹配，標記為新增行
+            if (!matchFound && newKeyValue !== undefined && newKeyValue !== '') {
+                // 如果通過主鍵沒有找到匹配，標記為新增行
                 differences.push({
                     type: 'added_row',
-                    newRowIndex: rowIndex,
+                    newRowIndex,
                     row: newRow
                 });
+            } else if (!matchFound) {
+                // 對於沒有主鍵的行，嘗試通過行內容匹配
+                const rowContent = JSON.stringify(newRow);
+                const oldRowInfo = oldRowMap.get(rowContent);
+                
+                if (oldRowInfo) {
+                    matchFound = true;
+                    matchedOldRows.add(rowContent);
+                    
+                    // 不需要比較行內容，因為它們已經完全匹配
+                } else {
+                    // 如果仍然沒有找到匹配，標記為新增行
+                    differences.push({
+                        type: 'added_row',
+                        newRowIndex,
+                        row: newRow
+                    });
+                }
             }
-        }
+        });
         
         // 查找刪除的行
-        for (let rowIndex = startIndex; rowIndex < oldData.length; rowIndex++) {
-            const oldRow = oldData[rowIndex];
-            if (oldRow.length === 0) continue;
+        oldData.forEach((oldRow, oldRowIndex) => {
+            if (oldRow.length === 0) return;
             
             const oldKeyValue = oldRow[keyColumnIndex];
             let key;
@@ -297,14 +276,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (oldKeyValue !== undefined && oldKeyValue !== '') {
                 key = String(oldKeyValue);
             } else {
-                // 使用行內容作為標識
-                key = oldRow.join('|');
+                // 對於沒有主鍵的行，使用行的內容作為標識而不是行號
+                // 這樣可以更準確地匹配行，避免誤報
+                key = JSON.stringify(oldRow);
             }
             
             if (!matchedOldRows.has(key)) {
                 differences.push({
                     type: 'deleted_row',
-                    oldRowIndex: rowIndex,
+                    oldRowIndex,
                     row: oldRow
                 });
             }
@@ -426,7 +406,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 const oldValueDisplay = diff.oldValue === undefined || diff.oldValue === null ? '' : diff.oldValue;
                 const newValueDisplay = diff.newValue === undefined || diff.newValue === null ? '' : diff.newValue;
                 
-                html += `<tr class="diff-changed">
+                // 添加data屬性以存儲單元格位置信息
+                html += `<tr class="diff-changed" data-cell-ref="${cellRef}">
                     <td>${cellRef} (${colName})</td>
                     <td>${oldValueDisplay}</td>
                     <td>${newValueDisplay}</td>
@@ -436,6 +417,175 @@ document.addEventListener('DOMContentLoaded', function() {
         
         resultsBody.innerHTML = html;
         resultsTable.style.display = 'table';
+        
+        // 為單元格變更項目添加點擊事件
+        addClickEventToChangedCells(oldFileInput.files[0], oldSheetSelect.value);
+    }
+    
+    // 為單元格變更項目添加點擊事件
+    function addClickEventToChangedCells(excelFile, sheetName) {
+        const changedRows = document.querySelectorAll('#results-body tr.diff-changed');
+        
+        changedRows.forEach(row => {
+            row.style.cursor = 'pointer'; // 改變滑鼠游標樣式，提示可點擊
+            row.title = '點擊開啟Excel並跳轉到此儲存格'; // 添加提示文字
+            
+            // 添加點擊事件
+            row.addEventListener('click', function() {
+                const cellRef = this.getAttribute('data-cell-ref');
+                if (!cellRef) return;
+                
+                // 如果沒有上傳檔案，提示使用者
+                if (!excelFile) {
+                    alert('請確保已上傳Excel檔案');
+                    return;
+                }
+                
+                // 獲取檔案名稱
+                const fileName = excelFile.name;
+                
+                // 開啟Excel並跳轉到指定儲存格
+                openExcelAndNavigateToCell(cellRef, sheetName, fileName);
+            });
+        });
+    }
+    
+    // 開啟Excel並跳轉到指定儲存格
+    function openExcelAndNavigateToCell(cellRef, sheetName, fileName) {
+        // 嘗試多種方法開啟Excel並跳轉到指定儲存格
+        
+        // 創建一個模態對話框，提供使用者選項
+        const modalContainer = document.createElement('div');
+        modalContainer.className = 'excel-modal-container';
+        modalContainer.style.position = 'fixed';
+        modalContainer.style.top = '0';
+        modalContainer.style.left = '0';
+        modalContainer.style.width = '100%';
+        modalContainer.style.height = '100%';
+        modalContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        modalContainer.style.display = 'flex';
+        modalContainer.style.justifyContent = 'center';
+        modalContainer.style.alignItems = 'center';
+        modalContainer.style.zIndex = '1000';
+        
+        const modalContent = document.createElement('div');
+        modalContent.className = 'excel-modal-content';
+        modalContent.style.backgroundColor = 'white';
+        modalContent.style.padding = '20px';
+        modalContent.style.borderRadius = '5px';
+        modalContent.style.maxWidth = '500px';
+        modalContent.style.width = '90%';
+        modalContent.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+        
+        modalContent.innerHTML = `
+            <h3 style="margin-top: 0;">開啟Excel檔案</h3>
+            <p>您想要跳轉到工作表「<strong>${sheetName}</strong>」的儲存格「<strong>${cellRef}</strong>」</p>
+            <p>請選擇開啟方式：</p>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <button id="open-excel-app" style="padding: 10px; cursor: pointer;">1. 開啟Excel應用程式</button>
+                <button id="select-excel-file" style="padding: 10px; cursor: pointer;">2. 選擇Excel檔案</button>
+                <button id="copy-cell-info" style="padding: 10px; cursor: pointer;">3. 複製儲存格資訊</button>
+                <button id="close-modal" style="padding: 10px; margin-top: 10px; cursor: pointer;">取消</button>
+            </div>
+            <p style="margin-top: 15px; font-size: 0.9em; color: #666;">提示：由於瀏覽器安全限制，可能無法直接跳轉到特定儲存格。</p>
+        `;
+        
+        modalContainer.appendChild(modalContent);
+        document.body.appendChild(modalContainer);
+        
+        // 開啟Excel應用程式
+        document.getElementById('open-excel-app').addEventListener('click', function() {
+            try {
+                const tempLink = document.createElement('a');
+                tempLink.href = 'ms-excel:nft|u|';
+                tempLink.style.display = 'none';
+                document.body.appendChild(tempLink);
+                tempLink.click();
+                
+                alert(`Excel應用程式已開啟。請手動開啟檔案「${fileName}」，然後前往工作表「${sheetName}」的儲存格「${cellRef}」`);
+                
+                setTimeout(() => {
+                    document.body.removeChild(tempLink);
+                }, 100);
+                
+                document.body.removeChild(modalContainer);
+            } catch (error) {
+                console.error('開啟Excel時發生錯誤:', error);
+                alert('無法自動開啟Excel應用程式，請手動開啟。');
+            }
+        });
+        
+        // 選擇Excel檔案
+        document.getElementById('select-excel-file').addEventListener('click', function() {
+            const fileSelector = document.createElement('input');
+            fileSelector.type = 'file';
+            fileSelector.accept = '.xlsx, .xls';
+            fileSelector.style.display = 'none';
+            document.body.appendChild(fileSelector);
+            
+            fileSelector.addEventListener('change', function() {
+                if (this.files.length > 0) {
+                    const selectedFileName = this.files[0].name;
+                    
+                    // 嘗試使用Office URI Schemes
+                    try {
+                        // 嘗試使用ms-excel:ofv協議
+                        const tempLink = document.createElement('a');
+                        tempLink.href = 'ms-excel:nft|u|';
+                        tempLink.click();
+                        
+                        alert(`Excel應用程式已開啟。請手動開啟檔案「${selectedFileName}」，然後前往工作表「${sheetName}」的儲存格「${cellRef}」`);
+                        
+                        document.body.removeChild(tempLink);
+                    } catch (error) {
+                        console.error('開啟Excel時發生錯誤:', error);
+                        alert(`請手動開啟檔案「${selectedFileName}」，然後前往工作表「${sheetName}」的儲存格「${cellRef}」`);
+                    }
+                }
+                document.body.removeChild(fileSelector);
+            });
+            
+            fileSelector.click();
+            document.body.removeChild(modalContainer);
+        });
+        
+        // 複製儲存格資訊
+        document.getElementById('copy-cell-info').addEventListener('click', function() {
+            const cellInfo = `工作表: ${sheetName}, 儲存格: ${cellRef}`;
+            
+            // 使用Clipboard API複製文字
+            navigator.clipboard.writeText(cellInfo).then(function() {
+                alert(`儲存格資訊已複製到剪貼簿：${cellInfo}`);
+            }, function() {
+                // 如果Clipboard API失敗，使用傳統方法
+                const textarea = document.createElement('textarea');
+                textarea.value = cellInfo;
+                textarea.style.position = 'fixed';
+                document.body.appendChild(textarea);
+                textarea.focus();
+                textarea.select();
+                
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        alert(`儲存格資訊已複製到剪貼簿：${cellInfo}`);
+                    } else {
+                        alert(`無法複製儲存格資訊：${cellInfo}`);
+                    }
+                } catch (err) {
+                    alert(`無法複製儲存格資訊：${cellInfo}`);
+                }
+                
+                document.body.removeChild(textarea);
+            });
+            
+            document.body.removeChild(modalContainer);
+        });
+        
+        // 關閉模態對話框
+        document.getElementById('close-modal').addEventListener('click', function() {
+            document.body.removeChild(modalContainer);
+        });
     }
 
     // 初始化拖放功能
@@ -472,74 +622,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const files = dt.files;
             
             if (files.length > 0) {
-                // 無法直接設置fileInput.files，改為使用模擬點擊方式
-                // 先清除現有的選擇
-                fileInput.value = '';
-                
-                // 如果是舊版檔案上傳區域，則設置oldFileInput的檔案
-                if (id === 'old-file-area') {
-                    oldFileInput.files = files;
-                    oldFileName.textContent = files[0].name;
-                    
-                    // 讀取Excel檔案
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        try {
-                            const data = new Uint8Array(e.target.result);
-                            oldWorkbook = XLSX.read(data, {type: 'array'});
-                            
-                            // 更新工作表選擇下拉選單
-                            oldSheetSelect.innerHTML = '';
-                            oldWorkbook.SheetNames.forEach(function(sheetName) {
-                                const option = document.createElement('option');
-                                option.value = sheetName;
-                                option.textContent = sheetName;
-                                oldSheetSelect.appendChild(option);
-                            });
-                            
-                            oldSheetSelect.disabled = false;
-                            
-                            // 檢查是否可以啟用比較按鈕
-                            checkEnableCompareButton();
-                        } catch (error) {
-                            console.error('讀取舊版Excel檔案時發生錯誤:', error);
-                            alert('無法讀取Excel檔案，請確認檔案格式正確。');
-                        }
-                    };
-                    reader.readAsArrayBuffer(files[0]);
-                } 
-                // 如果是新版檔案上傳區域，則設置newFileInput的檔案
-                else if (id === 'new-file-area') {
-                    newFileInput.files = files;
-                    newFileName.textContent = files[0].name;
-                    
-                    // 讀取Excel檔案
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        try {
-                            const data = new Uint8Array(e.target.result);
-                            newWorkbook = XLSX.read(data, {type: 'array'});
-                            
-                            // 更新工作表選擇下拉選單
-                            newSheetSelect.innerHTML = '';
-                            newWorkbook.SheetNames.forEach(function(sheetName) {
-                                const option = document.createElement('option');
-                                option.value = sheetName;
-                                option.textContent = sheetName;
-                                newSheetSelect.appendChild(option);
-                            });
-                            
-                            newSheetSelect.disabled = false;
-                            
-                            // 檢查是否可以啟用比較按鈕
-                            checkEnableCompareButton();
-                        } catch (error) {
-                            console.error('讀取新版Excel檔案時發生錯誤:', error);
-                            alert('無法讀取Excel檔案，請確認檔案格式正確。');
-                        }
-                    };
-                    reader.readAsArrayBuffer(files[0]);
-                }
+                fileInput.files = files;
+                // 觸發change事件
+                const event = new Event('change');
+                fileInput.dispatchEvent(event);
             }
         }, false);
     });
