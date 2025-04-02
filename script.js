@@ -137,6 +137,222 @@ document.addEventListener('DOMContentLoaded', function() {
         // 比較兩個工作表的差異
         compareSheets(oldData, newData);
     });
+    
+    // 比對整本活頁簿按鈕點擊事件
+    compareAllBtn.addEventListener('click', function() {
+        if (!oldWorkbook || !newWorkbook) {
+            alert('請先上傳兩個Excel檔案');
+            return;
+        }
+        
+        // 比較所有工作表
+        compareAllSheets(oldWorkbook, newWorkbook);
+    });
+    
+    // 比較所有工作表的差異
+    function compareAllSheets(oldWorkbook, newWorkbook) {
+        // 清空結果表格
+        resultsBody.innerHTML = '';
+        
+        // 獲取所有工作表名稱
+        const oldSheetNames = oldWorkbook.SheetNames;
+        const newSheetNames = newWorkbook.SheetNames;
+        
+        // 合併所有工作表名稱（不重複）
+        const allSheetNames = [...new Set([...oldSheetNames, ...newSheetNames])];
+        
+        // 追蹤差異總數
+        let totalDifferences = 0;
+        let sheetResults = [];
+        
+        // 比較每個工作表
+        allSheetNames.forEach(sheetName => {
+            const oldSheetExists = oldSheetNames.includes(sheetName);
+            const newSheetExists = newSheetNames.includes(sheetName);
+            
+            // 如果工作表在兩個檔案中都存在，則比較內容
+            if (oldSheetExists && newSheetExists) {
+                const oldSheet = oldWorkbook.Sheets[sheetName];
+                const newSheet = newWorkbook.Sheets[sheetName];
+                
+                // 將工作表轉換為JSON
+                const oldData = XLSX.utils.sheet_to_json(oldSheet, {header: 1});
+                const newData = XLSX.utils.sheet_to_json(newSheet, {header: 1});
+                
+                // 尋找可能的主鍵列
+                const keyColumnIndex = findPossibleKeyColumn(oldData, newData);
+                
+                // 使用智能比對算法
+                const differences = smartCompare(oldData, newData, keyColumnIndex);
+                
+                // 記錄結果
+                sheetResults.push({
+                    sheetName,
+                    status: 'changed',
+                    differences,
+                    oldData,
+                    newData
+                });
+                
+                totalDifferences += differences.length;
+            } else if (oldSheetExists) {
+                // 工作表在舊檔案中存在，但在新檔案中不存在
+                sheetResults.push({
+                    sheetName,
+                    status: 'deleted',
+                    differences: [{ type: 'sheet_deleted' }]
+                });
+                
+                totalDifferences += 1;
+            } else if (newSheetExists) {
+                // 工作表在新檔案中存在，但在舊檔案中不存在
+                sheetResults.push({
+                    sheetName,
+                    status: 'added',
+                    differences: [{ type: 'sheet_added' }]
+                });
+                
+                totalDifferences += 1;
+            }
+        });
+        
+        // 顯示整體結果
+        displayAllSheetsResults(sheetResults, totalDifferences);
+        
+        // 顯示結果區域
+        resultsSection.style.display = 'block';
+        resultsSection.scrollIntoView({behavior: 'smooth'});
+    }
+    
+    // 顯示所有工作表的比較結果
+    function displayAllSheetsResults(sheetResults, totalDifferences) {
+        // 更新摘要信息
+        if (totalDifferences === 0) {
+            summary.innerHTML = '<p>所有工作表完全相同，沒有發現差異。</p>';
+            resultsTable.style.display = 'none';
+            return;
+        }
+        
+        // 顯示總差異數
+        summary.innerHTML = `<p>共發現 ${totalDifferences} 個差異，涉及 ${sheetResults.length} 個工作表</p>`;
+        
+        // 創建結果表格
+        let html = '';
+        
+        // 遍歷每個工作表的結果
+        sheetResults.forEach((result, index) => {
+            // 添加工作表標題
+            html += `<tr><td colspan="3" class="diff-sheet-header">${result.sheetName} 工作表</td></tr>`;
+            
+            // 處理工作表狀態
+            if (result.status === 'added') {
+                html += `<tr class="diff-added">
+                    <td>工作表變更</td>
+                    <td>不存在</td>
+                    <td>新增工作表</td>
+                </tr>`;
+            } else if (result.status === 'deleted') {
+                html += `<tr class="diff-removed">
+                    <td>工作表變更</td>
+                    <td>已刪除工作表</td>
+                    <td>不存在</td>
+                </tr>`;
+            } else if (result.differences.length === 0) {
+                html += `<tr>
+                    <td colspan="3">此工作表完全相同，沒有發現差異</td>
+                </tr>`;
+            } else {
+                // 獲取標題行
+                const oldHeaders = result.oldData && result.oldData.length > 0 ? result.oldData[0] : [];
+                const newHeaders = result.newData && result.newData.length > 0 ? result.newData[0] : [];
+                
+                // 分類差異
+                const changedCells = result.differences.filter(d => d.type === 'changed');
+                const addedRows = result.differences.filter(d => d.type === 'added_row');
+                const deletedRows = result.differences.filter(d => d.type === 'deleted_row');
+                const addedColumns = result.differences.filter(d => d.type === 'added_column');
+                const deletedColumns = result.differences.filter(d => d.type === 'deleted_column');
+                
+                // 顯示列變更
+                if (addedColumns.length > 0 || deletedColumns.length > 0) {
+                    html += '<tr><td colspan="3" class="diff-section-header">列變更</td></tr>';
+                    
+                    addedColumns.forEach(diff => {
+                        const colName = newHeaders[diff.colIndex] || `列 ${diff.colIndex + 1}`;
+                        html += `<tr class="diff-added">
+                            <td>新增列</td>
+                            <td></td>
+                            <td>${colName}</td>
+                        </tr>`;
+                    });
+                    
+                    deletedColumns.forEach(diff => {
+                        const colName = oldHeaders[diff.colIndex] || `列 ${diff.colIndex + 1}`;
+                        html += `<tr class="diff-removed">
+                            <td>刪除列</td>
+                            <td>${colName}</td>
+                            <td></td>
+                        </tr>`;
+                    });
+                }
+                
+                // 顯示行變更
+                if (addedRows.length > 0 || deletedRows.length > 0) {
+                    html += '<tr><td colspan="3" class="diff-section-header">行變更</td></tr>';
+                    
+                    addedRows.forEach(diff => {
+                        const rowNum = diff.newRowIndex + 1;
+                        // 確保firstCell不是undefined或null
+                        const firstCell = diff.row[0] === undefined || diff.row[0] === null ? '' : diff.row[0];
+                        html += `<tr class="diff-added">
+                            <td>新增行 ${rowNum}</td>
+                            <td></td>
+                            <td>${firstCell}...</td>
+                        </tr>`;
+                    });
+                    
+                    deletedRows.forEach(diff => {
+                        const rowNum = diff.oldRowIndex + 1;
+                        // 確保firstCell不是undefined或null
+                        const firstCell = diff.row[0] === undefined || diff.row[0] === null ? '' : diff.row[0];
+                        html += `<tr class="diff-removed">
+                            <td>刪除行 ${rowNum}</td>
+                            <td>${firstCell}...</td>
+                            <td></td>
+                        </tr>`;
+                    });
+                }
+                
+                // 顯示單元格變更
+                if (changedCells.length > 0) {
+                    html += '<tr><td colspan="3" class="diff-section-header">單元格變更</td></tr>';
+                    
+                    changedCells.forEach(diff => {
+                        const colName = oldHeaders[diff.colIndex] || newHeaders[diff.colIndex] || `列 ${diff.colIndex + 1}`;
+                        const cellRef = XLSX.utils.encode_cell({r: diff.oldRowIndex, c: diff.colIndex});
+                        
+                        // 確保undefined和null值被轉換為空字串
+                        const oldValueDisplay = diff.oldValue === undefined || diff.oldValue === null ? '' : diff.oldValue;
+                        const newValueDisplay = diff.newValue === undefined || diff.newValue === null ? '' : diff.newValue;
+                        
+                        html += `<tr class="diff-changed">
+                            <td>${cellRef} (${colName})</td>
+                            <td>${oldValueDisplay}</td>
+                            <td>${newValueDisplay}</td>
+                        </tr>`;
+                    });
+                }
+            }
+            
+            // 添加分隔線（除了最後一個工作表）
+            if (index < sheetResults.length - 1) {
+                html += '<tr><td colspan="3" class="diff-separator"></td></tr>';
+            }
+        });
+        
+        resultsBody.innerHTML = html;
+        resultsTable.style.display = 'table';
+    }
 
     // 比較兩個工作表的差異
     function compareSheets(oldData, newData) {
@@ -182,6 +398,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function smartCompare(oldData, newData, keyColumnIndex) {
         const differences = [];
         const oldRowMap = new Map();
+        const newRowMap = new Map();
         
         // 建立舊數據的映射表，以主鍵為索引
         oldData.forEach((row, rowIndex) => {
@@ -190,10 +407,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (keyValue !== undefined && keyValue !== '') {
                     oldRowMap.set(String(keyValue), { row, rowIndex });
                 } else {
-                    // 對於沒有主鍵的行，使用行的內容作為標識而不是行號
-                    // 這樣可以更準確地匹配行，避免誤報
-                    const rowContent = JSON.stringify(row);
+                    // 對於沒有主鍵的行，我們將整行內容作為鍵值
+                    const rowContent = row.join('|');
                     oldRowMap.set(rowContent, { row, rowIndex });
+                }
+            }
+        });
+        
+        // 建立新數據的映射表，用於後續比較
+        newData.forEach((row, rowIndex) => {
+            if (row.length > 0) {
+                const keyValue = row[keyColumnIndex];
+                if (keyValue !== undefined && keyValue !== '') {
+                    newRowMap.set(String(keyValue), { row, rowIndex });
+                } else {
+                    // 對於沒有主鍵的行，我們將整行內容作為鍵值
+                    const rowContent = row.join('|');
+                    newRowMap.set(rowContent, { row, rowIndex });
                 }
             }
         });
@@ -239,33 +469,25 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     }
                 }
-            }
-            
-            if (!matchFound && newKeyValue !== undefined && newKeyValue !== '') {
-                // 如果通過主鍵沒有找到匹配，標記為新增行
-                differences.push({
-                    type: 'added_row',
-                    newRowIndex,
-                    row: newRow
-                });
-            } else if (!matchFound) {
+            } else {
                 // 對於沒有主鍵的行，嘗試通過行內容匹配
-                const rowContent = JSON.stringify(newRow);
+                const rowContent = newRow.join('|');
                 const oldRowInfo = oldRowMap.get(rowContent);
                 
                 if (oldRowInfo) {
                     matchFound = true;
                     matchedOldRows.add(rowContent);
-                    
-                    // 不需要比較行內容，因為它們已經完全匹配
-                } else {
-                    // 如果仍然沒有找到匹配，標記為新增行
-                    differences.push({
-                        type: 'added_row',
-                        newRowIndex,
-                        row: newRow
-                    });
+                    // 如果內容完全相同，則不需要添加差異
                 }
+            }
+            
+            if (!matchFound) {
+                // 如果沒有找到匹配，標記為新增行
+                differences.push({
+                    type: 'added_row',
+                    newRowIndex,
+                    row: newRow
+                });
             }
         });
         
@@ -279,17 +501,23 @@ document.addEventListener('DOMContentLoaded', function() {
             if (oldKeyValue !== undefined && oldKeyValue !== '') {
                 key = String(oldKeyValue);
             } else {
-                // 對於沒有主鍵的行，使用行的內容作為標識而不是行號
-                // 這樣可以更準確地匹配行，避免誤報
-                key = JSON.stringify(oldRow);
+                // 對於沒有主鍵的行，使用行內容作為鍵值
+                key = oldRow.join('|');
             }
             
             if (!matchedOldRows.has(key)) {
-                differences.push({
-                    type: 'deleted_row',
-                    oldRowIndex,
-                    row: oldRow
-                });
+                // 檢查這一行是否真的被刪除，而不是僅僅因為行號變化
+                const rowContent = oldRow.join('|');
+                const newRowInfo = newRowMap.get(rowContent);
+                
+                if (!newRowInfo) {
+                    // 如果在新數據中找不到相同內容的行，才標記為刪除
+                    differences.push({
+                        type: 'deleted_row',
+                        oldRowIndex,
+                        row: oldRow
+                    });
+                }
             }
         });
         
@@ -463,164 +691,3 @@ document.addEventListener('DOMContentLoaded', function() {
         }, false);
     });
 });
-
-// 比對整本活頁簿按鈕點擊事件
-compareAllBtn.addEventListener('click', function() {
-    if (!oldWorkbook || !newWorkbook) {
-        alert('請先上傳兩個Excel檔案');
-        return;
-    }
-
-    // 清空結果表格
-    resultsBody.innerHTML = '';
-    let allDifferences = [];
-
-    // 遍歷所有工作表進行比較
-    const oldSheets = new Set(oldWorkbook.SheetNames);
-    const newSheets = new Set(newWorkbook.SheetNames);
-    const allSheets = new Set([...oldSheets, ...newSheets]);
-
-    allSheets.forEach(sheetName => {
-        const oldSheet = oldWorkbook.Sheets[sheetName];
-        const newSheet = newWorkbook.Sheets[sheetName];
-
-        if (!oldSheet) {
-            // 新增的工作表
-            const newData = XLSX.utils.sheet_to_json(newSheet, {header: 1});
-            allDifferences.push({
-                type: 'added_sheet',
-                sheetName: sheetName,
-                data: newData
-            });
-        } else if (!newSheet) {
-            // 刪除的工作表
-            const oldData = XLSX.utils.sheet_to_json(oldSheet, {header: 1});
-            allDifferences.push({
-                type: 'deleted_sheet',
-                sheetName: sheetName,
-                data: oldData
-            });
-        } else {
-            // 比較工作表內容
-            const oldData = XLSX.utils.sheet_to_json(oldSheet, {header: 1});
-            const newData = XLSX.utils.sheet_to_json(newSheet, {header: 1});
-            const differences = smartCompare(oldData, newData, findPossibleKeyColumn(oldData, newData));
-            if (differences.length > 0) {
-                allDifferences.push({
-                    type: 'modified_sheet',
-                    sheetName: sheetName,
-                    differences: differences
-                });
-            }
-        }
-    });
-
-    // 顯示所有差異
-    displayAllResults(allDifferences);
-
-    // 顯示結果區域
-    resultsSection.style.display = 'block';
-    resultsSection.scrollIntoView({behavior: 'smooth'});
-});
-
-// 顯示所有工作表的比較結果
-function displayAllResults(allDifferences) {
-    if (allDifferences.length === 0) {
-        summary.innerHTML = '<p>兩個Excel檔案完全相同，沒有發現差異。</p>';
-        resultsTable.style.display = 'none';
-        return;
-    }
-
-    // 更新摘要信息
-    summary.innerHTML = `<p>發現 ${allDifferences.length} 個工作表有差異</p>`;
-
-    // 創建結果表格
-    let html = '';
-
-    allDifferences.forEach(diff => {
-        html += `<tr><td colspan="3" class="diff-section-header">工作表：${diff.sheetName}</td></tr>`;
-
-        if (diff.type === 'added_sheet') {
-            html += `<tr class="diff-added">
-                <td>新增工作表</td>
-                <td></td>
-                <td>包含 ${diff.data.length} 行資料</td>
-            </tr>`;
-        } else if (diff.type === 'deleted_sheet') {
-            html += `<tr class="diff-removed">
-                <td>刪除工作表</td>
-                <td>包含 ${diff.data.length} 行資料</td>
-                <td></td>
-            </tr>`;
-        } else if (diff.type === 'modified_sheet') {
-            // 顯示工作表內容的差異
-            const changes = diff.differences;
-            
-            // 分類差異
-            const changedCells = changes.filter(d => d.type === 'changed');
-            const addedRows = changes.filter(d => d.type === 'added_row');
-            const deletedRows = changes.filter(d => d.type === 'deleted_row');
-            const addedColumns = changes.filter(d => d.type === 'added_column');
-            const deletedColumns = changes.filter(d => d.type === 'deleted_column');
-
-            // 顯示列變更
-            if (addedColumns.length > 0 || deletedColumns.length > 0) {
-                addedColumns.forEach(change => {
-                    html += `<tr class="diff-added">
-                        <td>新增列</td>
-                        <td></td>
-                        <td>列 ${change.colIndex + 1}</td>
-                    </tr>`;
-                });
-
-                deletedColumns.forEach(change => {
-                    html += `<tr class="diff-removed">
-                        <td>刪除列</td>
-                        <td>列 ${change.colIndex + 1}</td>
-                        <td></td>
-                    </tr>`;
-                });
-            }
-
-            // 顯示行變更
-            if (addedRows.length > 0 || deletedRows.length > 0) {
-                addedRows.forEach(change => {
-                    const rowNum = change.newRowIndex + 1;
-                    const firstCell = change.row[0] === undefined || change.row[0] === null ? '' : change.row[0];
-                    html += `<tr class="diff-added">
-                        <td>新增行 ${rowNum}</td>
-                        <td></td>
-                        <td>${firstCell}...</td>
-                    </tr>`;
-                });
-
-                deletedRows.forEach(change => {
-                    const rowNum = change.oldRowIndex + 1;
-                    const firstCell = change.row[0] === undefined || change.row[0] === null ? '' : change.row[0];
-                    html += `<tr class="diff-removed">
-                        <td>刪除行 ${rowNum}</td>
-                        <td>${firstCell}...</td>
-                        <td></td>
-                    </tr>`;
-                });
-            }
-
-            // 顯示單元格變更
-            if (changedCells.length > 0) {
-                changedCells.forEach(change => {
-                    const cellRef = XLSX.utils.encode_cell({r: change.oldRowIndex, c: change.colIndex});
-                    const oldValueDisplay = change.oldValue === undefined || change.oldValue === null ? '' : change.oldValue;
-                    const newValueDisplay = change.newValue === undefined || change.newValue === null ? '' : change.newValue;
-                    html += `<tr class="diff-changed">
-                        <td>${cellRef}</td>
-                        <td>${oldValueDisplay}</td>
-                        <td>${newValueDisplay}</td>
-                    </tr>`;
-                });
-            }
-        }
-    });
-
-    resultsBody.innerHTML = html;
-    resultsTable.style.display = 'table';
-}
