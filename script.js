@@ -320,7 +320,14 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 顯示比較結果
-    function displayResults(differences, oldData, newData) {
+    let oldFilePath = '';
+let newFilePath = '';
+
+function displayResults(differences, oldData, newData) {
+        // 儲存檔案路徑
+        oldFilePath = document.getElementById('old-file').files[0].path;
+        newFilePath = document.getElementById('new-file').files[0].path;
+
         if (differences.length === 0) {
             summary.innerHTML = '<p>兩個工作表完全相同，沒有發現差異。</p>';
             resultsTable.style.display = 'none';
@@ -406,185 +413,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 const oldValueDisplay = diff.oldValue === undefined || diff.oldValue === null ? '' : diff.oldValue;
                 const newValueDisplay = diff.newValue === undefined || diff.newValue === null ? '' : diff.newValue;
                 
-                // 添加data屬性以存儲單元格位置信息
-                html += `<tr class="diff-changed" data-cell-ref="${cellRef}">
-                    <td>${cellRef} (${colName})</td>
-                    <td>${oldValueDisplay}</td>
-                    <td>${newValueDisplay}</td>
+                html += `<tr class="diff-changed">
+                    <td class="clickable" data-file="${diff.oldRowIndex < newData.length ? newFilePath : oldFilePath}" data-cell="${cellRef}">${cellRef} (${colName})</td>
+                    <td class="clickable" data-file="${oldFilePath}" data-cell="${cellRef}">${oldValueDisplay}</td>
+                    <td class="clickable" data-file="${newFilePath}" data-cell="${cellRef}">${newValueDisplay}</td>
                 </tr>`;
             });
         }
         
         resultsBody.innerHTML = html;
         resultsTable.style.display = 'table';
-        
-        // 為單元格變更項目添加點擊事件
-        addClickEventToChangedCells(oldFileInput.files[0], oldSheetSelect.value);
-    }
-    
-    // 為單元格變更項目添加點擊事件
-    function addClickEventToChangedCells(excelFile, sheetName) {
-        const changedRows = document.querySelectorAll('#results-body tr.diff-changed');
-        
-        changedRows.forEach(row => {
-            row.style.cursor = 'pointer'; // 改變滑鼠游標樣式，提示可點擊
-            row.title = '點擊開啟Excel並跳轉到此儲存格'; // 添加提示文字
-            
-            // 添加點擊事件
-            row.addEventListener('click', function() {
-                const cellRef = this.getAttribute('data-cell-ref');
-                if (!cellRef) return;
-                
-                // 如果沒有上傳檔案，提示使用者
-                if (!excelFile) {
-                    alert('請確保已上傳Excel檔案');
-                    return;
+
+        // 為所有可點擊的單元格添加點擊事件
+        document.querySelectorAll('.clickable').forEach(cell => {
+            cell.style.cursor = 'pointer';
+            cell.addEventListener('click', function() {
+                const filePath = this.getAttribute('data-file');
+                const cellRef = this.getAttribute('data-cell');
+                if (filePath && cellRef) {
+                    // 使用ms-excel協議打開Excel並跳轉到指定儲存格
+                    const excelUrl = `ms-excel:ofe|u|${filePath}#${cellRef}`;
+                    window.location.href = excelUrl;
                 }
-                
-                // 獲取檔案名稱
-                const fileName = excelFile.name;
-                
-                // 開啟Excel並跳轉到指定儲存格
-                openExcelAndNavigateToCell(cellRef, sheetName, fileName);
             });
-        });
-    }
-    
-    // 開啟Excel並跳轉到指定儲存格
-    function openExcelAndNavigateToCell(cellRef, sheetName, fileName) {
-        // 嘗試多種方法開啟Excel並跳轉到指定儲存格
-        
-        // 創建一個模態對話框，提供使用者選項
-        const modalContainer = document.createElement('div');
-        modalContainer.className = 'excel-modal-container';
-        modalContainer.style.position = 'fixed';
-        modalContainer.style.top = '0';
-        modalContainer.style.left = '0';
-        modalContainer.style.width = '100%';
-        modalContainer.style.height = '100%';
-        modalContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-        modalContainer.style.display = 'flex';
-        modalContainer.style.justifyContent = 'center';
-        modalContainer.style.alignItems = 'center';
-        modalContainer.style.zIndex = '1000';
-        
-        const modalContent = document.createElement('div');
-        modalContent.className = 'excel-modal-content';
-        modalContent.style.backgroundColor = 'white';
-        modalContent.style.padding = '20px';
-        modalContent.style.borderRadius = '5px';
-        modalContent.style.maxWidth = '500px';
-        modalContent.style.width = '90%';
-        modalContent.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
-        
-        modalContent.innerHTML = `
-            <h3 style="margin-top: 0;">開啟Excel檔案</h3>
-            <p>您想要跳轉到工作表「<strong>${sheetName}</strong>」的儲存格「<strong>${cellRef}</strong>」</p>
-            <p>請選擇開啟方式：</p>
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-                <button id="open-excel-app" style="padding: 10px; cursor: pointer;">1. 開啟Excel應用程式</button>
-                <button id="select-excel-file" style="padding: 10px; cursor: pointer;">2. 選擇Excel檔案</button>
-                <button id="copy-cell-info" style="padding: 10px; cursor: pointer;">3. 複製儲存格資訊</button>
-                <button id="close-modal" style="padding: 10px; margin-top: 10px; cursor: pointer;">取消</button>
-            </div>
-            <p style="margin-top: 15px; font-size: 0.9em; color: #666;">提示：由於瀏覽器安全限制，可能無法直接跳轉到特定儲存格。</p>
-        `;
-        
-        modalContainer.appendChild(modalContent);
-        document.body.appendChild(modalContainer);
-        
-        // 開啟Excel應用程式
-        document.getElementById('open-excel-app').addEventListener('click', function() {
-            try {
-                const tempLink = document.createElement('a');
-                tempLink.href = 'ms-excel:nft|u|';
-                tempLink.style.display = 'none';
-                document.body.appendChild(tempLink);
-                tempLink.click();
-                
-                alert(`Excel應用程式已開啟。請手動開啟檔案「${fileName}」，然後前往工作表「${sheetName}」的儲存格「${cellRef}」`);
-                
-                setTimeout(() => {
-                    document.body.removeChild(tempLink);
-                }, 100);
-                
-                document.body.removeChild(modalContainer);
-            } catch (error) {
-                console.error('開啟Excel時發生錯誤:', error);
-                alert('無法自動開啟Excel應用程式，請手動開啟。');
-            }
-        });
-        
-        // 選擇Excel檔案
-        document.getElementById('select-excel-file').addEventListener('click', function() {
-            const fileSelector = document.createElement('input');
-            fileSelector.type = 'file';
-            fileSelector.accept = '.xlsx, .xls';
-            fileSelector.style.display = 'none';
-            document.body.appendChild(fileSelector);
-            
-            fileSelector.addEventListener('change', function() {
-                if (this.files.length > 0) {
-                    const selectedFileName = this.files[0].name;
-                    
-                    // 嘗試使用Office URI Schemes
-                    try {
-                        // 嘗試使用ms-excel:ofv協議
-                        const tempLink = document.createElement('a');
-                        tempLink.href = 'ms-excel:nft|u|';
-                        tempLink.click();
-                        
-                        alert(`Excel應用程式已開啟。請手動開啟檔案「${selectedFileName}」，然後前往工作表「${sheetName}」的儲存格「${cellRef}」`);
-                        
-                        document.body.removeChild(tempLink);
-                    } catch (error) {
-                        console.error('開啟Excel時發生錯誤:', error);
-                        alert(`請手動開啟檔案「${selectedFileName}」，然後前往工作表「${sheetName}」的儲存格「${cellRef}」`);
-                    }
-                }
-                document.body.removeChild(fileSelector);
-            });
-            
-            fileSelector.click();
-            document.body.removeChild(modalContainer);
-        });
-        
-        // 複製儲存格資訊
-        document.getElementById('copy-cell-info').addEventListener('click', function() {
-            const cellInfo = `工作表: ${sheetName}, 儲存格: ${cellRef}`;
-            
-            // 使用Clipboard API複製文字
-            navigator.clipboard.writeText(cellInfo).then(function() {
-                alert(`儲存格資訊已複製到剪貼簿：${cellInfo}`);
-            }, function() {
-                // 如果Clipboard API失敗，使用傳統方法
-                const textarea = document.createElement('textarea');
-                textarea.value = cellInfo;
-                textarea.style.position = 'fixed';
-                document.body.appendChild(textarea);
-                textarea.focus();
-                textarea.select();
-                
-                try {
-                    const successful = document.execCommand('copy');
-                    if (successful) {
-                        alert(`儲存格資訊已複製到剪貼簿：${cellInfo}`);
-                    } else {
-                        alert(`無法複製儲存格資訊：${cellInfo}`);
-                    }
-                } catch (err) {
-                    alert(`無法複製儲存格資訊：${cellInfo}`);
-                }
-                
-                document.body.removeChild(textarea);
-            });
-            
-            document.body.removeChild(modalContainer);
-        });
-        
-        // 關閉模態對話框
-        document.getElementById('close-modal').addEventListener('click', function() {
-            document.body.removeChild(modalContainer);
         });
     }
 
