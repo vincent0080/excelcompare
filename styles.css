@@ -168,15 +168,6 @@ select {
     border-bottom: 1px solid #ddd;
 }
 
-.clickable {
-    transition: background-color 0.2s;
-}
-
-.clickable:hover {
-    background-color: #f0f0f0;
-    text-decoration: underline;
-}
-
 .results-table th {
     background-color: #f2f2f2;
     font-weight: bold;
